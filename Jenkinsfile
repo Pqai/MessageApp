@@ -66,19 +66,43 @@ pipeline {
             }
         }
         
+        stage('Wait for Container') {
+            steps {
+                script {
+                    powershell '''
+                        Write-Host "Waiting 5 seconds for container to start..."
+                        Start-Sleep -Seconds 5
+                        Write-Host "Wait complete"
+                    '''
+                }
+            }
+        }
+        
         stage('Verify Application') {
             steps {
                 script {
-                    bat 'timeout /t 5 /nobreak > nul'
-                    def status = bat(
-                        script: 'curl -s -o nul -w "%%{http_code}" http://localhost:3000',
+                    def status = powershell(
+                        script: '''
+                            try {
+                                $response = Invoke-WebRequest -Uri "http://localhost:3000" -UseBasicParsing -TimeoutSec 10
+                                Write-Output $response.StatusCode
+                            } catch {
+                                if ($_.Exception.Response.StatusCode.value__) {
+                                    Write-Output $_.Exception.Response.StatusCode.value__
+                                } else {
+                                    Write-Output "000"
+                                }
+                            }
+                        ''',
                         returnStdout: true
                     ).trim()
+                    
+                    echo "HTTP Status Code: ${status}"
                     
                     if (status == '200') {
                         echo 'Application is running successfully!'
                     } else {
-                        error "Application returned status: ${status}"
+                        error "Application returned status: ${status}. Make sure the container is running."
                     }
                 }
             }
@@ -96,11 +120,26 @@ pipeline {
             echo '''
                 Pipeline executed successfully!
                 Application is running at: http://localhost:3000
+                Docker Image: %DOCKER_IMAGE%:%DOCKER_TAG%
+                Container Name: %CONTAINER_NAME%
             '''
         }
         
         failure {
-            echo 'Pipeline failed! Check the logs above.'
+            echo '''
+                Pipeline failed!
+                Check the logs above for errors.
+            '''
+        }
+        
+        always {
+            script {
+                try {
+                    echo 'Pipeline completed. Container may still be running.'
+                } catch (Exception e) {
+                    echo 'Could not perform cleanup'
+                }
+            }
         }
     }
 }
