@@ -1,10 +1,6 @@
 pipeline {
     agent any
     
-    tools {
-        nodejs 'node-25'
-    }
-    
     environment {
         DOCKER_IMAGE = 'message-app'
         DOCKER_TAG = "${BUILD_NUMBER}"
