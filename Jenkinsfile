@@ -17,16 +17,19 @@ pipeline {
         
         stage('Install Dependencies') {
             steps {
-                sh 'npm install'
+                bat 'npm install'
                 echo 'Dependencies installed'
             }
         }
         
         stage('Create Directories') {
             steps {
-                sh '''
-                    mkdir -p public message page temp
-                    echo 'Directories created'
+                bat '''
+                    if not exist public mkdir public
+                    if not exist message mkdir message
+                    if not exist page mkdir page
+                    if not exist temp mkdir temp
+                    echo Directories created
                 '''
             }
         }
@@ -34,8 +37,8 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 script {
-                    docker.build("${DOCKER_IMAGE}:${DOCKER_TAG}")
-                    docker.build("${DOCKER_IMAGE}:latest")
+                    bat "docker build -t %DOCKER_IMAGE%:%DOCKER_TAG% ."
+                    bat "docker tag %DOCKER_IMAGE%:%DOCKER_TAG% %DOCKER_IMAGE%:latest"
                 }
                 echo 'Docker image built successfully'
             }
@@ -45,8 +48,8 @@ pipeline {
             steps {
                 script {
                     try {
-                        sh "docker stop ${CONTAINER_NAME} || true"
-                        sh "docker rm ${CONTAINER_NAME} || true"
+                        bat "docker stop %CONTAINER_NAME% 2>nul || exit 0"
+                        bat "docker rm %CONTAINER_NAME% 2>nul || exit 0"
                     } catch (Exception e) {
                         echo 'No existing container to remove'
                     }
@@ -57,12 +60,7 @@ pipeline {
         stage('Run Docker Container') {
             steps {
                 script {
-                    docker.image("${DOCKER_IMAGE}:${DOCKER_TAG}").run([
-                        '-d',
-                        '--name', "${CONTAINER_NAME}",
-                        '-p', '3000:3000',
-                        '-v', "${WORKSPACE}/message:/app/message"
-                    ])
+                    bat "docker run -d --name %CONTAINER_NAME% -p 3000:3000 -v %WORKSPACE%\\message:/app/message %DOCKER_IMAGE%:%DOCKER_TAG%"
                 }
                 echo 'Container started successfully'
             }
@@ -71,10 +69,9 @@ pipeline {
         stage('Verify Application') {
             steps {
                 script {
-                    sh 'sleep 5'
-                    
-                    def status = sh(
-                        script: 'curl -s -o /dev/null -w "%{http_code}" http://localhost:3000',
+                    bat 'timeout /t 5 /nobreak > nul'
+                    def status = bat(
+                        script: 'curl -s -o nul -w "%%{http_code}" http://localhost:3000',
                         returnStdout: true
                     ).trim()
                     
@@ -89,7 +86,7 @@ pipeline {
         
         stage('Show Container Logs') {
             steps {
-                sh "docker logs ${CONTAINER_NAME} --tail 20"
+                bat "docker logs %CONTAINER_NAME% --tail 20"
             }
         }
     }
@@ -99,26 +96,11 @@ pipeline {
             echo '''
                 Pipeline executed successfully!
                 Application is running at: http://localhost:3000
-                Docker Image: ${DOCKER_IMAGE}:${DOCKER_TAG}
-                Container Name: ${CONTAINER_NAME}
             '''
         }
         
         failure {
-            echo '''
-                Pipeline failed!
-                
-            '''
-        }
-        
-        always {
-            script {
-                try {
-                    sh "docker system prune -f"
-                } catch (Exception e) {
-                    echo 'Could not prune Docker system'
-                }
-            }
+            echo 'Pipeline failed! Check the logs above.'
         }
     }
 }
